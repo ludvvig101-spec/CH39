@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Humidification & HME Decision Algorithm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #EDF1EF;
+    --paper: #FFFFFF;
+    --ink: #142823;
+    --ink-soft: #4C625C;
+    --line: #D3DDD8;
+    --teal: #1B7F79;
+    --teal-deep: #0F5B57;
+    --teal-tint: #E3F1EF;
+    --amber: #B3721C;
+    --amber-tint: #FBF0DD;
+    --brick: #A63E32;
+    --brick-tint: #FBE9E5;
+    --moss: #3E7D52;
+    --moss-tint: #E7F2EA;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(20,40,35,0.06), 0 8px 24px -12px rgba(20,40,35,0.18);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1815;
+      --paper: #142623;
+      --ink: #EAF2EE;
+      --ink-soft: #9FB6AE;
+      --line: #23413B;
+      --teal: #4FC0B7;
+      --teal-deep: #7AD6CD;
+      --teal-tint: #17322D;
+      --amber: #E3AC5A;
+      --amber-tint: #33291A;
+      --brick: #E38C7E;
+      --brick-tint: #34201D;
+      --moss: #82C79A;
+      --moss-tint: #17301F;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1815;
+    --paper: #142623;
+    --ink: #EAF2EE;
+    --ink-soft: #9FB6AE;
+    --line: #23413B;
+    --teal: #4FC0B7;
+    --teal-deep: #7AD6CD;
+    --teal-tint: #17322D;
+    --amber: #E3AC5A;
+    --amber-tint: #33291A;
+    --brick: #E38C7E;
+    --brick-tint: #34201D;
+    --moss: #82C79A;
+    --moss-tint: #17301F;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 28px 18px 64px;
+  }
+  header.top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+  .brand h1 {
+    font-size: 1.32rem;
+    line-height: 1.25;
+    margin: 0 0 4px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .brand p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.88rem;
+  }
+  .pulse {
+    width: 40px; height: 40px;
+    flex: none;
+    border-radius: 10px;
+    background: var(--teal);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pulse svg { width: 24px; height: 24px; }
+
+  nav.tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 22px;
+    box-shadow: var(--shadow);
+  }
+  nav.tabs button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--ink-soft);
+    font-family: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
+    padding: 9px 6px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  nav.tabs button.active {
+    background: var(--teal);
+    color: #fff;
+  }
+  nav.tabs button:focus-visible, button:focus-visible, .flip-card:focus-visible, .opt:focus-visible {
+    outline: 2.5px solid var(--teal-deep);
+    outline-offset: 2px;
+  }
+
+  section.view { display: none; }
+  section.view.active { display: block; animation: fadein 0.25s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ---- Walkthrough ---- */
+  .rail {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .rail .dot {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: var(--paper);
+    flex: none;
+  }
+  .rail .dot.done { background: var(--teal); border-color: var(--teal); color: #fff; }
+  .rail .dot.now { border-color: var(--teal); color: var(--teal-deep); }
+  .rail .seg { flex: 1; min-width: 10px; height: 2px; background: var(--line); }
+  .rail .seg.done { background: var(--teal); }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+  }
+  .q-eyebrow {
+    font-size: 0.78rem;
+    color: var(--teal-deep);
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  .q-text {
+    font-size: 1.28rem;
+    line-height: 1.4;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .q-sub {
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .choices button {
+    appearance: none;
+    border: 1.5px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 14px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
+  }
+  .choices button:hover { border-color: var(--teal); background: var(--teal-tint); }
+  .choices button:active { transform: scale(0.98); }
+
+  .outcome {
+    border-radius: var(--radius);
+    padding: 22px;
+    border: 1px solid var(--line);
+  }
+  .outcome.safe { background: var(--moss-tint); border-color: color-mix(in srgb, var(--moss) 35%, var(--line)); }
+  .outcome.escalate { background: var(--amber-tint); border-color: color-mix(in srgb, var(--amber) 35%, var(--line)); }
+  .outcome.mandatory { background: var(--brick-tint); border-color: color-mix(in srgb, var(--brick) 35%, var(--line)); }
+  .outcome.info { background: var(--teal-tint); border-color: color-mix(in srgb, var(--teal) 35%, var(--line)); }
+  .tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .outcome.safe .tag { background: var(--moss); color: #fff; }
+  .outcome.escalate .tag { background: var(--amber); color: #fff; }
+  .outcome.mandatory .tag { background: var(--brick); color: #fff; }
+  .outcome.info .tag { background: var(--teal); color: #fff; }
+  .outcome h3 { margin: 0 0 10px; font-size: 1.15rem; line-height: 1.35; }
+  .outcome p { margin: 0 0 10px; line-height: 1.55; font-size: 0.95rem; color: var(--ink); }
+  .outcome .nums { font-family: 'IBM Plex Mono', monospace; font-size: 0.86rem; color: var(--ink-soft); }
+  .outcome ul { margin: 10px 0 0; padding-left: 20px; }
+  .outcome li { margin-bottom: 6px; font-size: 0.92rem; line-height: 1.5; }
+
+  .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .btn {
+    appearance: none;
+    border: 1.5px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+  .btn.ghost { background: transparent; }
+
+  /* ---- Flashcards ---- */
+  .fc-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: var(--ink-soft); font-size: 0.86rem; }
+  .flip-scene { perspective: 1400px; }
+  .flip-card {
+    position: relative;
+    min-height: 240px;
+    cursor: pointer;
+    border-radius: var(--radius);
+  }
+  .flip-inner {
+    position: relative;
+    width: 100%; height: 100%;
+    min-height: 240px;
+    transition: transform 0.5s cubic-bezier(.2,.8,.2,1);
+    transform-style: preserve-3d;
+  }
+  .flip-card.flipped .flip-inner { transform: rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0;
+    backface-visibility: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    padding: 26px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .face.front { background: var(--paper); }
+  .face.back { background: var(--teal-tint); transform: rotateY(180deg); border-color: color-mix(in srgb, var(--teal) 35%, var(--line)); }
+  .face .kicker { font-size: 0.74rem; font-weight: 700; color: var(--teal-deep); margin-bottom: 10px; }
+  .face p { margin: 0; font-size: 1.08rem; line-height: 1.5; font-weight: 500; }
+  .face .hint { margin-top: 14px; font-size: 0.8rem; color: var(--ink-soft); font-weight: 400; }
+  .fc-nav { display: flex; gap: 10px; margin-top: 16px; }
+  .fc-nav .btn { flex: 1; }
+
+  /* ---- Quiz ---- */
+  .quiz-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .score { font-family: 'IBM Plex Mono', monospace; font-size: 0.86rem; color: var(--ink-soft); }
+  .opts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .opt {
+    text-align: left;
+    appearance: none;
+    border: 1.5px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.95rem;
+    padding: 12px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  .opt:hover:not(:disabled) { border-color: var(--teal); }
+  .opt.correct { background: var(--moss-tint); border-color: var(--moss); }
+  .opt.incorrect { background: var(--brick-tint); border-color: var(--brick); }
+  .opt:disabled { cursor: default; }
+  .explain {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--teal-tint);
+    border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--line));
+    font-size: 0.9rem;
+    line-height: 1.5;
+    display: none;
+  }
+  .explain.show { display: block; }
+  .quiz-done h3 { margin-top: 0; }
+  .bar-track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 14px 0 4px; }
+  .bar-fill { height: 100%; background: var(--teal); }
+
+  footer.note {
+    margin-top: 30px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 420px) {
+    .q-text { font-size: 1.12rem; }
+    .choices { grid-template-columns: 1fr 1fr; }
+    .card { padding: 18px; }
+    nav.tabs button { font-size: 0.74rem; padding: 8px 3px; }
+  }
+
+  /* ---- Reference tab ---- */
+  .ref-card {
+    margin-bottom: 12px;
+  }
+  .ref-card .scenario {
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+    line-height: 1.5;
+  }
+  .ref-card .device {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 10px;
+  }
+  .ref-card .rationale {
+    font-size: 0.92rem;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .outcome.safe .device { color: var(--moss); }
+  .outcome.mandatory .device { color: var(--brick); }
+  .outcome.info .device { color: var(--teal-deep); }
+  .outcome.escalate .device { color: var(--amber); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Humidification & HME Decision Algorithm</h1>
+      <p>RCARE-33 Ch. 39 — walk the tree, drill the facts, test the call</p>
+    </div>
+    <div class="pulse" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2 12h4l2-7 4 14 3-10 2 3h5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Study mode">
+    <button class="active" role="tab" aria-selected="true" data-view="walk">Walkthrough</button>
+    <button role="tab" aria-selected="false" data-view="cards">Flashcards</button>
+    <button role="tab" aria-selected="false" data-view="quiz">Quiz</button>
+    <button role="tab" aria-selected="false" data-view="ref">Reference</button>
+  </nav>
+
+  <!-- ===================== WALKTHROUGH ===================== -->
+  <section class="view active" id="view-walk">
+    <div class="rail" id="rail" aria-hidden="true"></div>
+    <div id="walk-stage"></div>
+  </section>
+
+  <!-- ===================== FLASHCARDS ===================== -->
+  <section class="view" id="view-cards">
+    <div class="fc-meta">
+      <span id="fc-count">Card 1 of 12</span>
+      <button class="btn ghost" id="fc-shuffle" type="button">Shuffle</button>
+    </div>
+    <div class="flip-scene">
+      <div class="flip-card" id="flip-card" tabindex="0" role="button" aria-label="Flip card">
+        <div class="flip-inner">
+          <div class="face front">
+            <div class="kicker">Prompt</div>
+            <p id="fc-front"></p>
+            <div class="hint">Tap the card to reveal the answer</div>
+          </div>
+          <div class="face back">
+            <div class="kicker">Answer</div>
+            <p id="fc-back"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fc-nav">
+      <button class="btn" id="fc-prev" type="button">Previous</button>
+      <button class="btn primary" id="fc-next" type="button">Next card</button>
+    </div>
+  </section>
+
+  <!-- ===================== QUIZ ===================== -->
+  <section class="view" id="view-quiz">
+    <div id="quiz-stage"></div>
+  </section>
+
+  <!-- ===================== QUICK REFERENCE ===================== -->
+  <section class="view" id="view-ref">
+    <div id="ref-stage"></div>
+  </section>
+
+  <footer class="note">Built from your Chapter 39 decision algorithm — original recall drills, not test-bank material.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============ DATA: the decision tree ============ */
+  const NODES = {
+    n1: {
+      id: "n1",
+      eyebrow: "Step 1 of 5",
+      text: "Is the upper airway intact?",
+      sub: "Start here for any patient before choosing a device.",
+      yes: { outcome: "o_intact" },
+      no:  { next: "n2" }
+    },
+    n2: {
+      id: "n2",
+      eyebrow: "Step 2 of 5 — airway bypassed",
+      text: "Are secretions thick, copious, or bloody?",
+      sub: "Assess the patient's current secretion character before picking active vs. passive humidification.",
+      yes: { outcome: "o_secretions" },
+      no:  { next: "n2b" }
+    },
+    n2b: {
+      id: "n2b",
+      eyebrow: "Step 3 of 5",
+      text: "Is the patient hypothermic — core temperature below 32°C?",
+      sub: "A cold patient isn't exhaling enough heat for a passive device to reclaim.",
+      yes: { outcome: "o_hypothermia" },
+      no:  { next: "n3" }
+    },
+    n3: {
+      id: "n3",
+      eyebrow: "Step 4 of 5",
+      text: "Is there a dead-space concern?",
+      sub: "Low tidal volume ventilation, pediatric or neonatal patients, or acute hypercapnia all count.",
+      yes: { outcome: "o_deadspace" },
+      no:  { next: "n4" }
+    },
+    n4: {
+      id: "n4",
+      eyebrow: "Step 5 of 5",
+      text: "Is minute ventilation high — V̇E greater than 10 L/min?",
+      sub: "Compare against the passive moisture-reclaiming capacity of an HME.",
+      yes: { outcome: "o_highve" },
+      no:  { outcome: "o_hme_safe" }
+    }
+  };
+
+  const OUTCOMES = {
+    o_intact: {
+      type: "info",
+      tag: "Upper airway intact",
+      title: "The nose and pharynx are still doing the conditioning work.",
+      body: "No artificial airway means the natural upper airway heats and humidifies inspired gas on its own — you're supplementing, not replacing it.",
+      nums: null,
+      points: [
+        "Unheated bubble humidifier for comfort with low-flow nasal cannula (≥ 4 L/min) — provides nasal mucosal comfort around 15–20 mg/L",
+        "Cool bland aerosol for upper airway edema, stridor, or post-extubation swelling — reduces mucosal swelling via vasoconstriction"
+      ]
+    },
+    o_secretions: {
+      type: "mandatory",
+      tag: "HME contraindicated",
+      title: "Thick, copious, or bloody secretions rule out an HME.",
+      body: "Secretions clog the HME's filter membrane, which drives up airway resistance and peak inspiratory pressures and raises the risk of airway occlusion.",
+      nums: null,
+      points: [
+        "Select an active heated humidifier instead.",
+        "Meets the higher humidity demand and helps prevent airway obstruction."
+      ]
+    },
+    o_hypothermia: {
+      type: "mandatory",
+      tag: "HME contraindicated",
+      title: "A core temperature below 32°C rules out a passive device.",
+      body: "An HME only works by capturing heat the patient exhales. A hypothermic patient isn't giving off enough heat for the device to reclaim, so it can't meet the patient's humidity demand.",
+      nums: "Threshold: core temperature < 32°C",
+      points: [
+        "Select an active heated humidifier instead.",
+        "Meets the higher humidity demand and helps prevent airway obstruction."
+      ]
+    },
+    o_deadspace: {
+      type: "mandatory",
+      tag: "HME contraindicated / caution",
+      title: "Added dead space is too costly for this patient.",
+      body: "An HME adds 30–100 mL of apparatus dead space. In low-VT ventilation, pediatric or neonatal patients, or acute hypercapnia, that extra volume drives CO₂ rebreathing and worsens respiratory acidosis.",
+      nums: "Apparatus dead space added: 30–100 mL",
+      points: [
+        "Select an active heated humidifier instead.",
+        "Eliminates the apparatus dead space an HME would add."
+      ]
+    },
+    o_highve: {
+      type: "mandatory",
+      tag: "HME contraindicated",
+      title: "Minute ventilation has outrun what the HME can reclaim.",
+      body: "High gas flow exceeds the passive moisture-reclaiming capacity of the HME, so the airway dries out quickly and secretions risk mucus plugging.",
+      nums: "Threshold: V̇E > 10 L/min",
+      points: [
+        "Select an active heated humidifier instead.",
+        "Meets the higher humidity demand and helps prevent airway obstruction."
+      ]
+    },
+    o_hme_safe: {
+      type: "safe",
+      tag: "HME is a safe candidate",
+      title: "This patient has cleared every contraindication.",
+      body: "Short-term ventilation, thin secretions, normothermic, no dead-space concern, and V̇E at or below 10 L/min together make a passive HME appropriate.",
+      nums: "V̇E ≤ 10 L/min",
+      points: [
+        "Efficient and cost-effective.",
+        "No circuit rain-out to manage, unlike active heated humidification.",
+        "Safe for short-term mechanical ventilation or transport."
+      ]
+    },
+    o_bypassed_mandatory: {
+      type: "info",
+      tag: "Airway bypassed",
+      title: "External humidification is mandatory.",
+      body: "Once the airway is bypassed by an ET tube or tracheostomy, the patient loses the natural conditioning of the nose and pharynx. Gas must be actively brought to BTPS before it reaches the trachea.",
+      nums: "BTPS target: 37°C · 100% RH · 44 mg/L water vapor",
+      points: ["Unheated bubble humidifiers are contraindicated here.", "Now work through secretions → dead space → minute ventilation to choose active humidification vs. an HME."]
+    }
+  };
+
+  /* ============ DATA: flashcards ============ */
+  const CARDS = [
+    { front: "What are the three BTPS conditions gas must reach once the airway is bypassed?", back: "37°C, 100% relative humidity, 44 mg/L water vapor." },
+    { front: "When is an unheated bubble humidifier appropriate?", back: "Only with an intact upper airway — for comfort on a low-flow nasal cannula (≥ 4 L/min)." },
+    { front: "When is an unheated bubble humidifier contraindicated?", back: "Whenever the upper airway is bypassed by an ET tube or tracheostomy — it can't reach BTPS." },
+    { front: "Name two indications for a cool bland aerosol.", back: "Upper airway edema/stridor, and post-extubation swelling." },
+    { front: "What secretion character rules out an HME?", back: "Thick, copious, or bloody secretions — they clog the HME's filter membrane." },
+    { front: "Why does a clogged HME filter matter clinically?", back: "It drives up airway resistance and peak inspiratory pressures, and raises the risk of airway occlusion." },
+    { front: "How much apparatus dead space does an HME typically add?", back: "30–100 mL." },
+    { front: "Name three patient groups where HME dead space is especially risky.", back: "Low tidal volume ventilation, pediatric/neonatal patients, and patients with acute hypercapnia." },
+    { front: "What does added HME dead space cause in a dead-space-sensitive patient?", back: "CO₂ rebreathing and worsening respiratory acidosis." },
+    { front: "What is the minute ventilation cutoff for safe HME use?", back: "V̇E > 10 L/min is a contraindication; V̇E ≤ 10 L/min keeps the HME in play." },
+    { front: "Why does high minute ventilation defeat an HME?", back: "Gas flow exceeds the HME's passive moisture-reclaiming capacity, so the airway dries and mucus plugging risk rises." },
+    { front: "A patient clears secretions, dead-space, and minute-ventilation checks. What's the verdict?", back: "An HME is safe for short-term mechanical ventilation or transport." },
+    { front: "What core temperature threshold rules out a passive HME?", back: "Below 32°C — the patient isn't exhaling enough heat for the device to reclaim." },
+    { front: "Why does hypothermia defeat an HME specifically?", back: "An HME only works by capturing heat the patient gives off on exhalation; a hypothermic patient can't supply enough of it." },
+    { front: "What absolute humidity does an unheated bubble humidifier provide for nasal comfort?", back: "About 15–20 mg/L." },
+    { front: "What's the mechanism behind cool bland aerosol relieving stridor or upper airway edema?", back: "It reduces mucosal swelling through vasoconstriction." },
+    { front: "Name two advantages of a passive HME over an active heated humidifier, when appropriate.", back: "It's efficient and cost-effective, and it avoids the circuit rain-out that comes with active heated humidification." }
+  ];
+
+  /* ============ DATA: quiz ============ */
+  const QUIZ = [
+    {
+      q: "A patient is on a nasal cannula at 5 L/min with a fully intact upper airway. What's the appropriate humidification approach?",
+      opts: [
+        "Unheated bubble humidifier for comfort",
+        "Active heated humidifier set to BTPS",
+        "HME attached to the cannula",
+        "No humidification is ever indicated"
+      ],
+      correct: 0,
+      why: "With an intact upper airway, the nose and pharynx already condition inspired gas — an unheated bubble humidifier is just for comfort at this flow."
+    },
+    {
+      q: "A patient is newly intubated. Why is an unheated bubble humidifier now contraindicated?",
+      opts: [
+        "Bubble humidifiers are always contraindicated regardless of airway status",
+        "The bypassed airway has lost its natural conditioning, and gas must reach BTPS (37°C, 100% RH, 44 mg/L) — which a bubble humidifier can't achieve",
+        "Bubble humidifiers only work with tracheostomies, not ET tubes",
+        "The patient no longer needs any humidification"
+      ],
+      correct: 1,
+      why: "Once the airway is bypassed, the natural upper-airway conditioning is gone, so gas must be actively brought to BTPS — a bubble humidifier can't get there."
+    },
+    {
+      q: "A ventilated patient has thick, bloody secretions. Which device should you select?",
+      opts: [
+        "An HME, since it filters secretions",
+        "An active heated humidifier, since the HME would clog and raise resistance",
+        "A cool bland aerosol",
+        "An unheated bubble humidifier"
+      ],
+      correct: 1,
+      why: "Thick or bloody secretions clog an HME's filter membrane, driving up resistance and occlusion risk — an active heated humidifier is the safe choice."
+    },
+    {
+      q: "A neonate on low-VT ventilation is being considered for an HME. What's the main concern?",
+      opts: [
+        "HMEs are too expensive for neonatal use",
+        "The 30–100 mL of added apparatus dead space can cause CO₂ rebreathing and worsening acidosis in a small tidal volume",
+        "HMEs cannot physically attach to neonatal circuits",
+        "There is no added concern — HMEs are always safe in neonates"
+      ],
+      correct: 1,
+      why: "An HME's added dead space (30–100 mL) is a much larger fraction of a neonate's small tidal volume, risking CO₂ rebreathing and worsening acidosis."
+    },
+    {
+      q: "A patient has thin secretions, no dead-space concern, but a minute ventilation of 14 L/min. What should you do?",
+      opts: [
+        "Use an HME — everything else checks out",
+        "Use an active heated humidifier — V̇E exceeds the HME's passive moisture-reclaiming capacity",
+        "Switch to an unheated bubble humidifier",
+        "No humidification is needed at high flows"
+      ],
+      correct: 1,
+      why: "V̇E above 10 L/min outruns what an HME can passively reclaim, drying the airway and risking mucus plugging — an active heated humidifier is indicated."
+    },
+    {
+      q: "A short-term transport patient has thin secretions, is normothermic, has normal dead space, and V̇E of 8 L/min. What's appropriate?",
+      opts: [
+        "An HME is a safe candidate for short-term ventilation or transport",
+        "An HME is contraindicated regardless of these findings",
+        "Only an unheated bubble humidifier is appropriate",
+        "BTPS conditions no longer matter during transport"
+      ],
+      correct: 0,
+      why: "This patient clears all four HME contraindications (secretions, temperature, dead space, minute ventilation) — efficient, cost-effective, and no circuit rain-out to manage."
+    },
+    {
+      q: "What are the three components of BTPS gas conditions?",
+      opts: [
+        "37°C, 100% relative humidity, 44 mg/L water vapor",
+        "21°C, 50% relative humidity, 22 mg/L water vapor",
+        "37°C, 80% relative humidity, 31 mg/L water vapor",
+        "40°C, 100% relative humidity, 50 mg/L water vapor"
+      ],
+      correct: 0,
+      why: "BTPS is body temperature (37°C), fully saturated (100% RH), holding 44 mg/L of water vapor."
+    },
+    {
+      q: "A patient has post-extubation stridor with an intact airway. Which therapy fits?",
+      opts: [
+        "Active heated humidifier at BTPS",
+        "Cool bland aerosol",
+        "HME",
+        "No therapy — stridor resolves without intervention"
+      ],
+      correct: 1,
+      why: "Cool bland aerosol is indicated for upper airway edema, stridor, or post-extubation swelling in a patient with an intact airway."
+    },
+    {
+      q: "A ventilated patient's core temperature drops to 30°C. Thin secretions, normal dead space, V̇E of 7 L/min. Is an HME still appropriate?",
+      opts: [
+        "Yes — every other check passed, so temperature doesn't matter",
+        "No — below 32°C, the patient isn't exhaling enough heat for the HME to reclaim",
+        "Yes — hypothermia only matters for active humidifiers",
+        "No — hypothermia means no humidification device is needed at all"
+      ],
+      correct: 1,
+      why: "Core temperature below 32°C is its own contraindication: an HME depends on exhaled heat, and a hypothermic patient can't supply enough of it — switch to an active heated humidifier."
+    },
+    {
+      q: "Roughly what absolute humidity does an unheated bubble humidifier deliver for nasal comfort on low-flow oxygen?",
+      opts: ["44 mg/L", "31 mg/L", "15–20 mg/L", "0 mg/L"],
+      correct: 2,
+      why: "An unheated bubble humidifier provides nasal mucosal comfort around 15–20 mg/L — well below the 44 mg/L BTPS target, which is fine since the intact upper airway is doing the real conditioning work."
+    },
+    {
+      q: "By what mechanism does a cool bland aerosol relieve post-extubation stridor?",
+      opts: [
+        "It sedates the airway smooth muscle directly",
+        "It reduces mucosal swelling via vasoconstriction",
+        "It dissolves airway secretions chemically",
+        "It raises the airway's temperature to reduce inflammation"
+      ],
+      correct: 1,
+      why: "Cool bland aerosol reduces mucosal swelling through vasoconstriction, easing the edema behind stridor and post-extubation swelling."
+    },
+    {
+      q: "Besides avoiding the contraindications, what are two practical advantages of choosing a passive HME when it's appropriate?",
+      opts: [
+        "It requires no water source and needs no power at all, and it prevents all types of pneumonia",
+        "It's efficient and cost-effective, and it avoids the circuit rain-out that comes with active heated humidification",
+        "It delivers higher absolute humidity than any active humidifier",
+        "It eliminates the need to ever monitor secretions"
+      ],
+      correct: 1,
+      why: "When appropriate, an HME is efficient and cost-effective and sidesteps the circuit condensate (rain-out) management that active heated humidification requires."
+    }
+  ];
+
+  /* ============ WALKTHROUGH LOGIC ============ */
+  const stage = document.getElementById("walk-stage");
+  const rail = document.getElementById("rail");
+  let path = []; // sequence of node ids visited
+  let current = "n1";
+  let finished = false;
+
+  function railSteps(){
+    // total conceptual steps across the longest path; some patients exit earlier
+    return ["n1","n2","n2b","n3","n4"];
+  }
+
+  function renderRail(){
+    const steps = railSteps();
+    rail.innerHTML = "";
+    steps.forEach((id, i) => {
+      const visited = path.includes(id) || (finished && id === current);
+      const isNow = id === current && !finished;
+      const dot = document.createElement("div");
+      dot.className = "dot" + (visited ? " done" : "") + (isNow ? " now" : "");
+      dot.textContent = String(i+1);
+      rail.appendChild(dot);
+      if (i < steps.length - 1) {
+        const seg = document.createElement("div");
+        seg.className = "seg" + (visited ? " done" : "");
+        rail.appendChild(seg);
+      }
+    });
+  }
+
+  function outcomeCard(outcomeId, opts){
+    opts = opts || {};
+    const o = OUTCOMES[outcomeId];
+    const div = document.createElement("div");
+    div.className = "outcome " + o.type;
+    let html = `<span class="tag">${o.tag}</span><h3>${o.title}</h3><p>${o.body}</p>`;
+    if (o.nums) html += `<p class="nums">${o.nums}</p>`;
+    if (o.points && o.points.length){
+      html += "<ul>" + o.points.map(p => `<li>${p}</li>`).join("") + "</ul>";
+    }
+    div.innerHTML = html;
+    return div;
+  }
+
+  function renderWalk(){
+    stage.innerHTML = "";
+    renderRail();
+
+    if (current === "o_bypassed_mandatory_transition") {
+      // informational stop between n1(no) and n2
+      const card = outcomeCard("o_bypassed_mandatory");
+      const wrapper = document.createElement("div");
+      wrapper.appendChild(card);
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const cont = document.createElement("button");
+      cont.className = "btn primary";
+      cont.type = "button";
+      cont.textContent = "Continue to secretions check";
+      cont.onclick = () => { current = "n2"; renderWalk(); };
+      const restart = document.createElement("button");
+      restart.className = "btn ghost";
+      restart.type = "button";
+      restart.textContent = "Start over";
+      restart.onclick = resetWalk;
+      actions.appendChild(cont);
+      actions.appendChild(restart);
+      wrapper.appendChild(actions);
+      stage.appendChild(wrapper);
+      return;
+    }
+
+    if (NODES[current]) {
+      const node = NODES[current];
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <p class="q-eyebrow">${node.eyebrow}</p>
+        <p class="q-text">${node.text}</p>
+        <p class="q-sub">${node.sub}</p>
+      `;
+      const choices = document.createElement("div");
+      choices.className = "choices";
+      const yesBtn = document.createElement("button");
+      yesBtn.textContent = "Yes";
+      yesBtn.onclick = () => advance(node, "yes");
+      const noBtn = document.createElement("button");
+      noBtn.textContent = "No";
+      noBtn.onclick = () => advance(node, "no");
+      choices.appendChild(yesBtn);
+      choices.appendChild(noBtn);
+      card.appendChild(choices);
+      stage.appendChild(card);
+      return;
+    }
+
+    // it's an outcome (terminal)
+    finished = true;
+    const card = outcomeCard(current);
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(card);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const restart = document.createElement("button");
+    restart.className = "btn primary";
+    restart.type = "button";
+    restart.textContent = "Run another patient";
+    restart.onclick = resetWalk;
+    actions.appendChild(restart);
+    wrapper.appendChild(actions);
+    stage.appendChild(wrapper);
+    renderRail();
+  }
+
+  function advance(node, choice){
+    path.push(node.id);
+    // special-case n1 -> no: always show the BTPS mandatory info card first,
+    // regardless of whether that branch is shaped as .next or .outcome
+    if (node.id === "n1" && choice === "no") {
+      current = "o_bypassed_mandatory_transition";
+      renderWalk();
+      return;
+    }
+    const branch = node[choice];
+    current = branch.outcome ? branch.outcome : branch.next;
+    renderWalk();
+  }
+
+  function resetWalk(){
+    path = [];
+    current = "n1";
+    finished = false;
+    renderWalk();
+  }
+
+  renderWalk();
+
+  /* ============ FLASHCARDS LOGIC ============ */
+  let fcOrder = CARDS.map((_, i) => i);
+  let fcIndex = 0;
+
+  const flipCard = document.getElementById("flip-card");
+  const fcFront = document.getElementById("fc-front");
+  const fcBack = document.getElementById("fc-back");
+  const fcCount = document.getElementById("fc-count");
+
+  function renderCard(){
+    const c = CARDS[fcOrder[fcIndex]];
+    fcFront.textContent = c.front;
+    fcBack.textContent = c.back;
+    fcCount.textContent = `Card ${fcIndex + 1} of ${CARDS.length}`;
+    flipCard.classList.remove("flipped");
+  }
+
+  flipCard.addEventListener("click", () => flipCard.classList.toggle("flipped"));
+  flipCard.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flipCard.classList.toggle("flipped"); }
+  });
+
+  document.getElementById("fc-next").addEventListener("click", () => {
+    fcIndex = (fcIndex + 1) % CARDS.length;
+    renderCard();
+  });
+  document.getElementById("fc-prev").addEventListener("click", () => {
+    fcIndex = (fcIndex - 1 + CARDS.length) % CARDS.length;
+    renderCard();
+  });
+  document.getElementById("fc-shuffle").addEventListener("click", () => {
+    for (let i = fcOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [fcOrder[i], fcOrder[j]] = [fcOrder[j], fcOrder[i]];
+    }
+    fcIndex = 0;
+    renderCard();
+  });
+
+  renderCard();
+
+  /* ============ QUIZ LOGIC ============ */
+  const quizStage = document.getElementById("quiz-stage");
+  let qIndex = 0;
+  let qScore = 0;
+  let qAnswered = false;
+
+  function renderQuiz(){
+    quizStage.innerHTML = "";
+
+    if (qIndex >= QUIZ.length) {
+      const pct = Math.round((qScore / QUIZ.length) * 100);
+      const div = document.createElement("div");
+      div.className = "card quiz-done";
+      div.innerHTML = `
+        <h3>Quiz complete</h3>
+        <p class="score">Score: ${qScore} / ${QUIZ.length} (${pct}%)</p>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      `;
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const retry = document.createElement("button");
+      retry.className = "btn primary";
+      retry.type = "button";
+      retry.textContent = "Retake quiz";
+      retry.onclick = () => { qIndex = 0; qScore = 0; renderQuiz(); };
+      actions.appendChild(retry);
+      div.appendChild(actions);
+      quizStage.appendChild(div);
+      return;
+    }
+
+    const item = QUIZ[qIndex];
+    qAnswered = false;
+
+    const meta = document.createElement("div");
+    meta.className = "quiz-meta";
+    meta.innerHTML = `<span class="score">Question ${qIndex + 1} of ${QUIZ.length}</span><span class="score">Score: ${qScore}</span>`;
+    quizStage.appendChild(meta);
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<p class="q-text" style="font-size:1.08rem;">${item.q}</p>`;
+
+    const optsWrap = document.createElement("div");
+    optsWrap.className = "opts";
+    const explain = document.createElement("div");
+    explain.className = "explain";
+    explain.setAttribute("aria-live", "polite");
+    explain.textContent = item.why;
+
+    item.opts.forEach((text, i) => {
+      const btn = document.createElement("button");
+      btn.className = "opt";
+      btn.type = "button";
+      btn.textContent = text;
+      btn.onclick = () => {
+        if (qAnswered) return;
+        qAnswered = true;
+        const isCorrect = i === item.correct;
+        if (isCorrect) qScore++;
+        Array.from(optsWrap.children).forEach((el, j) => {
+          el.disabled = true;
+          if (j === item.correct) el.classList.add("correct");
+          else if (j === i) el.classList.add("incorrect");
+        });
+        explain.classList.add("show");
+        nextBtn.style.display = "inline-block";
+      };
+      optsWrap.appendChild(btn);
+    });
+
+    card.appendChild(optsWrap);
+    card.appendChild(explain);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "btn primary";
+    nextBtn.type = "button";
+    nextBtn.style.display = "none";
+    nextBtn.textContent = qIndex === QUIZ.length - 1 ? "See results" : "Next question";
+    nextBtn.onclick = () => { qIndex++; renderQuiz(); };
+    actions.appendChild(nextBtn);
+    card.appendChild(actions);
+
+    quizStage.appendChild(card);
+  }
+
+  renderQuiz();
+
+  /* ============ QUICK REFERENCE TABLE ============ */
+  const REFERENCE = [
+    {
+      type: "safe",
+      device: "Passive HME",
+      scenario: "Short-term vent, thin secretions, normothermic, normal V̇E",
+      rationale: "Efficient, cost-effective, no circuit rain-out"
+    },
+    {
+      type: "mandatory",
+      device: "Active Heated Humidifier",
+      scenario: "Thick/bloody secretions, high V̇E (> 10 L/min), or hypothermia (< 32°C)",
+      rationale: "Meets high humidity demand, prevents airway obstruction"
+    },
+    {
+      type: "mandatory",
+      device: "Active Heated Humidifier",
+      scenario: "Low VT ventilation or severe hypercapnia",
+      rationale: "Eliminates apparatus dead space added by HME"
+    },
+    {
+      type: "info",
+      device: "Unheated Bubble Humidifier",
+      scenario: "Intact upper airway on low-flow O₂ (≥ 4 L/min)",
+      rationale: "Provides nasal mucosal comfort (15–20 mg/L)"
+    },
+    {
+      type: "escalate",
+      device: "Cool Bland Aerosol",
+      scenario: "Post-extubation stridor or upper airway edema",
+      rationale: "Reduces mucosal swelling via vasoconstriction"
+    }
+  ];
+
+  function renderReference(){
+    const stage = document.getElementById("ref-stage");
+    stage.innerHTML = "";
+    REFERENCE.forEach(row => {
+      const div = document.createElement("div");
+      div.className = "outcome ref-card " + row.type;
+      div.innerHTML = `
+        <p class="scenario">${row.scenario}</p>
+        <p class="device">${row.device}</p>
+        <p class="rationale">${row.rationale}</p>
+      `;
+      stage.appendChild(div);
+    });
+  }
+  renderReference();
+
+  /* ============ TABS ============ */
+  const tabButtons = document.querySelectorAll("nav.tabs button");
+  const views = {
+    walk: document.getElementById("view-walk"),
+    cards: document.getElementById("view-cards"),
+    quiz: document.getElementById("view-quiz"),
+    ref: document.getElementById("view-ref")
+  };
+  tabButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      tabButtons.forEach(b => { b.classList.remove("active"); b.setAttribute("aria-selected", "false"); });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected", "true");
+      Object.values(views).forEach(v => v.classList.remove("active"));
+      views[btn.dataset.view].classList.add("active");
+    });
+  });
+
+})();
+</script>
+</body>
+</html>
